@@ -7,6 +7,7 @@ import com.schedulebackendtgbot.database.entity.User;
 import com.schedulebackendtgbot.database.mapper.UserCreateMapper;
 import com.schedulebackendtgbot.database.mapper.UserReadMapper;
 import com.schedulebackendtgbot.database.repository.UserRepository;
+import jakarta.security.auth.message.AuthException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -38,9 +39,9 @@ public class UserService implements UserDetailsService {
     }
 
     @Transactional
-    public User create(UserCreateDTO userDto) {
+    public User create(UserCreateDTO userDto) throws AuthException {
         if (userRepository.findByUsername(userDto.getUsername()).isPresent()) {
-            throw new IllegalArgumentException("Этот логин уже занят");
+            throw new AuthException("Эта почта уже занята");
         }
         return Optional.of(userDto)
                 .map(userCreateMapper::map)

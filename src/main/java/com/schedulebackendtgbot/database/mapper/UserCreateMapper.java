@@ -36,9 +36,6 @@ public class UserCreateMapper implements Mapper<UserCreateDTO, User> {
         user.setFirstname(userCreateDTO.getFirstname());
         user.setMidname(userCreateDTO.getMidname());
         user.setLastname(userCreateDTO.getLastname());
-//        user.setTeacherExternalID(userCreateEditDTO.getTeacherExternalID());
-//        user.setGroup(groupRepository.findByName(userCreateEditDTO.getGroupName()).orElse(null));
-
         Optional.ofNullable(userCreateDTO.getPassword())
                 .filter(StringUtils::hasText)
                 .map(passwordEncoder::encode)

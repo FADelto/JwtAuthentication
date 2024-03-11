@@ -45,7 +45,7 @@ public class AuthService {
         }
     }
 
-    public JWTResponseDTO register(UserCreateDTO userDTO) {
+    public JWTResponseDTO register(UserCreateDTO userDTO) throws AuthException {
         User user = userService.create(userDTO);
         String accessToken = jwtProvider.generateAccessToken(user);
         String refreshToken = jwtProvider.generateRefreshToken(user);

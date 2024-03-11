@@ -6,15 +6,12 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.ColumnDefault;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Set;
 
 @Getter
 @Setter
@@ -26,9 +23,6 @@ public class User implements UserDetails {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @Column(name = "teacher_external_id")
-    private Integer teacherExternalID;
 
     @Column(length = 50)
     private String firstname;
@@ -43,19 +37,7 @@ public class User implements UserDetails {
     private String username;
 
     @NotEmpty
-    @ColumnDefault("123")
     private String password;
-
-//    @OneToOne(cascade = CascadeType.ALL)
-//    @JoinColumn(name = "lesson_id")
-//    private Lesson lessonSync;
-
-//    @ManyToOne(cascade = CascadeType.ALL)
-//    @JoinColumn(name = "group_id")
-//    private Group group;
-
-//    @OneToMany(fetch = FetchType.LAZY, mappedBy = "userId")
-//    private List<UserTask> userTasks = new ArrayList<>();
 
     @Enumerated(EnumType.STRING)
     private Role role = Role.STUDENT;
