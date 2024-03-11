@@ -1,10 +1,7 @@
 package com.schedulebackendtgbot.controller;
 
-import com.schedulebackendtgbot.database.DTO.JWTRequestDTO;
+import com.schedulebackendtgbot.database.DTO.*;
 
-import com.schedulebackendtgbot.database.DTO.JWTResponseDTO;
-import com.schedulebackendtgbot.database.DTO.RefreshJWTRequestDTO;
-import com.schedulebackendtgbot.database.DTO.UserCreateDTO;
 import com.schedulebackendtgbot.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -33,13 +30,15 @@ public class AuthController {
     @ApiResponse(responseCode = "200", description = "OK", content = {
             @Content(mediaType = "application/json", schema = @Schema(implementation = JWTResponseDTO.class))
     })
-    @ApiResponse(responseCode = "401", description = "Пользователь не найден / Неправильный пароль")
+    @ApiResponse(responseCode = "401", description = "Пользователь не найден / Неправильный пароль", content = {
+            @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponseDTO.class))
+    })
     @PostMapping("login")
     public ResponseEntity<?> login(@RequestBody JWTRequestDTO authRequest) {
         try{
             return ResponseEntity.ok(authService.login(authRequest));
         } catch (AuthException e){
-            return ResponseEntity.status(401).body(e.getMessage());
+            return ResponseEntity.status(401).body(new ErrorResponseDTO(e.getMessage()));
         }
     }
 
@@ -49,13 +48,15 @@ public class AuthController {
     @ApiResponse(responseCode = "200", description = "OK", content = {
             @Content(mediaType = "application/json", schema = @Schema(implementation = JWTResponseDTO.class))
     })
-    @ApiResponse(responseCode = "409", description = "Эта почта уже занята")
+    @ApiResponse(responseCode = "409", description = "Эта почта уже занята", content = {
+            @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponseDTO.class))
+    })
     @PostMapping("/register")
     public ResponseEntity<?> register(UserCreateDTO request) {
         try{
             return ResponseEntity.ok(authService.register(request));
         } catch (AuthException e){
-            return ResponseEntity.status(409).body(e.getMessage());
+            return ResponseEntity.status(409).body(new ErrorResponseDTO(e.getMessage()));
         }
     }
 
@@ -65,13 +66,15 @@ public class AuthController {
     @ApiResponse(responseCode = "200", description = "OK", content = {
             @Content(mediaType = "application/json", schema = @Schema(implementation = JWTResponseDTO.class))
     })
-    @ApiResponse(responseCode = "401", description = "Пользователь не найден / Невалидный JWT токен / Время работы токена истекло / Неподдерживаемый токен / Неправильный токен")
+    @ApiResponse(responseCode = "401", description = "Пользователь не найден / Невалидный JWT токен / Время работы токена истекло / Неподдерживаемый токен / Неправильный токен", content = {
+            @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponseDTO.class))
+    })
     @PostMapping("token")
     public ResponseEntity<?> getNewAccessToken(@RequestBody RefreshJWTRequestDTO request) {
         try{
             return ResponseEntity.ok(authService.getAccessToken(request.getRefreshToken()));
         } catch (AuthException e){
-            return ResponseEntity.status(401).body(e.getMessage());
+            return ResponseEntity.status(401).body(new ErrorResponseDTO(e.getMessage()));
         }
     }
 
@@ -81,13 +84,15 @@ public class AuthController {
     @ApiResponse(responseCode = "200", description = "OK", content = {
             @Content(mediaType = "application/json", schema = @Schema(implementation = JWTResponseDTO.class))
     })
-    @ApiResponse(responseCode = "401", description = "Пользователь не найден / Невалидный JWT токен / Время работы токена истекло / Неподдерживаемый токен / Неправильный токен")
+    @ApiResponse(responseCode = "401", description = "Пользователь не найден / Невалидный JWT токен / Время работы токена истекло / Неподдерживаемый токен / Неправильный токен", content = {
+            @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponseDTO.class))
+    })
     @PostMapping("refresh")
     public ResponseEntity<?> getNewRefreshToken(@RequestBody RefreshJWTRequestDTO request) {
         try{
             return ResponseEntity.ok(authService.refresh(request.getRefreshToken()));
         } catch (AuthException e){
-            return ResponseEntity.status(401).body(e.getMessage());
+            return ResponseEntity.status(401).body(new ErrorResponseDTO(e.getMessage()));
         }
     }
 

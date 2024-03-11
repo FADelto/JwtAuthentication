@@ -62,23 +62,24 @@ public class AuthService {
                 final User user = userRepository.findByUsername(login)
                         .orElseThrow(() -> new AuthException("Пользователь не найден"));
                 final String accessToken = jwtProvider.generateAccessToken(user);
-                return new JWTResponseDTO(accessToken, null);
+                return new JWTResponseDTO(accessToken, saveRefreshToken);
             }
         }
         throw new AuthException("Невалидный JWT токен");
     }
+
     public JWTResponseDTO refresh(@NonNull String refreshToken) throws AuthException {
         if (jwtProvider.validateRefreshToken(refreshToken)) {
             final Claims claims = jwtProvider.getRefreshClaims(refreshToken);
             final String login = claims.getSubject();
-            final String saveRefreshToken = String.valueOf(tokenRepository.findValidTokenByUser(userRepository.findByUsername(login).orElseThrow().getId()));
-            //final String saveRefreshToken = refreshStorage.get(login);
+            final String saveRefreshToken = String.valueOf(tokenRepository.findValidTokenByUser(userRepository.findByUsername(login).orElseThrow().getId()).token);
             if (saveRefreshToken != null && saveRefreshToken.equals(refreshToken)) {
                 final User user = userRepository.findByUsername(login)
                         .orElseThrow(() -> new AuthException("Пользователь не найден"));
                 final String accessToken = jwtProvider.generateAccessToken(user);
+                revokeAllUserTokens(user);
                 final String newRefreshToken = jwtProvider.generateRefreshToken(user);
-                tokenRepository.save(new Token(refreshToken, false, false, user));
+                tokenRepository.save(new Token(newRefreshToken, false, false, user));
                 return new JWTResponseDTO(accessToken, newRefreshToken);
             }
         }
