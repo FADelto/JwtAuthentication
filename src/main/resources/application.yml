@@ -1,0 +1,24 @@
+logging:
+    level:
+        root: INFO
+        org.springframework.jdbc.core: TRACE
+    file:
+        name: logs/Schedule-TgBot.log
+
+spring:
+    datasource:
+        url: jdbc:postgresql://localhost:5432/JWTTest
+        username: postgres
+        password: postgres
+#    url: ${SPRING_DB_HOST}
+#    username: ${SPRING_DB_USER}
+#    password: ${SPRING_DB_USER}
+    jpa:
+        #hibernate:
+            #ddl-auto: validate
+        generate-ddl: true
+
+jwt:
+    secret:
+        access: qBTmv4oXFFR2GwjexDJ4t6fsIUIUhhXqlktXjXdkcyygs8nPVEwMfo29VDRRepYDVV5IkIxBMzr7OEHXEHd37w==
+        refresh: zL1HB3Pch05Avfynovxrf/kpF9O2m4NCWKJUjEp27s9J2jEG3ifiKCGylaZ8fDeoONSTJP/wAzKawB8F9rOMNg==
