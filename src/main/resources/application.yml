@@ -7,12 +7,12 @@ logging:
 
 spring:
     datasource:
-        url: jdbc:postgresql://localhost:5432/JWTTest
-        username: postgres
-        password: postgres
-#    url: ${SPRING_DB_HOST}
-#    username: ${SPRING_DB_USER}
-#    password: ${SPRING_DB_USER}
+#        url: jdbc:postgresql://localhost:5432/JWTTest
+#        username: postgres
+#        password: postgres
+        url: ${SPRING_DB_HOST}
+        username: ${SPRING_DB_USER}
+        password: ${SPRING_DB_USER}
     jpa:
         #hibernate:
             #ddl-auto: validate
