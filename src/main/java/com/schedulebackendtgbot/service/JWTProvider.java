@@ -96,11 +96,11 @@ public class JWTProvider {
             throw new AuthException("Неправильный токен");
         } catch (SignatureException sEx) {
             log.error("Invalid signature", sEx);
+            throw new AuthException("Неверная подпись токена");
         } catch (Exception e) {
             log.error("invalid token", e);
             throw new AuthException("Неправильный токен");
         }
-        return false;
     }
 
     public Claims getAccessClaims(@NonNull String token) {

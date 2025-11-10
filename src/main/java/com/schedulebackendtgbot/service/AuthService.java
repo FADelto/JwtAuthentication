@@ -12,9 +12,11 @@ import io.jsonwebtoken.Claims;
 import jakarta.security.auth.message.AuthException;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthService {
@@ -26,30 +28,41 @@ public class AuthService {
     private final JWTProvider jwtProvider;
 
     public JWTResponseDTO login(@NonNull JWTRequestDTO authRequest) throws AuthException {
+        log.info("Попытка входа пользователя: {}", authRequest.getLogin());
         final User user = userRepository.findByUsername(authRequest.getLogin())
-                .orElseThrow(() -> new AuthException("Пользователь не найден"));
+                .orElseThrow(() -> {
+                    log.warn("Неудачная попытка входа: пользователь не найден - {}", authRequest.getLogin());
+                    return new AuthException("Пользователь не найден");
+                });
         if (passwordEncoder.matches(authRequest.getPassword(), user.getPassword())) {
             final String accessToken = jwtProvider.generateAccessToken(user);
             Token token = tokenRepository.findValidTokenByUser(user.getId());
             String refreshToken;
-            if(jwtProvider.validateRefreshToken(token.getToken())) {
+
+            // Проверяем существует ли валидный токен и не истек ли он
+            if(token != null && jwtProvider.validateRefreshToken(token.getToken())) {
                 refreshToken = token.getToken();
-            }else{
+            } else {
+                // Если токена нет или он истек, создаем новый
                 revokeAllUserTokens(user);
                 refreshToken = jwtProvider.generateRefreshToken(user);
                 tokenRepository.save(new Token(refreshToken, false, false, user));
             }
+            log.info("Успешный вход пользователя: {}", user.getUsername());
             return new JWTResponseDTO(accessToken, refreshToken);
         } else {
+            log.warn("Неудачная попытка входа: неверный пароль - {}", authRequest.getLogin());
             throw new AuthException("Неправильный пароль");
         }
     }
 
     public JWTResponseDTO register(UserCreateDTO userDTO) throws AuthException {
+        log.info("Попытка регистрации пользователя: {}", userDTO.getUsername());
         User user = userService.create(userDTO);
         String accessToken = jwtProvider.generateAccessToken(user);
         String refreshToken = jwtProvider.generateRefreshToken(user);
         tokenRepository.save(new Token(refreshToken, false, false, user));
+        log.info("Успешная регистрация пользователя: {}", user.getUsername());
         return new JWTResponseDTO(accessToken, refreshToken);
     }
 
@@ -57,12 +70,13 @@ public class AuthService {
         if (jwtProvider.validateRefreshToken(refreshToken)) {
             final Claims claims = jwtProvider.getRefreshClaims(refreshToken);
             final String login = claims.getSubject();
-            final String saveRefreshToken = String.valueOf(tokenRepository.findValidTokenByUser(userRepository.findByUsername(login).orElseThrow().getId()).token);
-            if (saveRefreshToken.equals(refreshToken)) {
-                final User user = userRepository.findByUsername(login)
-                        .orElseThrow(() -> new AuthException("Пользователь не найден"));
+            final User user = userRepository.findByUsername(login)
+                    .orElseThrow(() -> new AuthException("Пользователь не найден"));
+            final Token savedToken = tokenRepository.findValidTokenByUser(user.getId());
+
+            if (savedToken != null && savedToken.getToken().equals(refreshToken)) {
                 final String accessToken = jwtProvider.generateAccessToken(user);
-                return new JWTResponseDTO(accessToken, saveRefreshToken);
+                return new JWTResponseDTO(accessToken, savedToken.getToken());
             }
         }
         throw new AuthException("Невалидный JWT токен");
@@ -72,10 +86,11 @@ public class AuthService {
         if (jwtProvider.validateRefreshToken(refreshToken)) {
             final Claims claims = jwtProvider.getRefreshClaims(refreshToken);
             final String login = claims.getSubject();
-            final String saveRefreshToken = String.valueOf(tokenRepository.findValidTokenByUser(userRepository.findByUsername(login).orElseThrow().getId()).token);
-            if (saveRefreshToken != null && saveRefreshToken.equals(refreshToken)) {
-                final User user = userRepository.findByUsername(login)
-                        .orElseThrow(() -> new AuthException("Пользователь не найден"));
+            final User user = userRepository.findByUsername(login)
+                    .orElseThrow(() -> new AuthException("Пользователь не найден"));
+            final Token savedToken = tokenRepository.findValidTokenByUser(user.getId());
+
+            if (savedToken != null && savedToken.getToken().equals(refreshToken)) {
                 final String accessToken = jwtProvider.generateAccessToken(user);
                 revokeAllUserTokens(user);
                 final String newRefreshToken = jwtProvider.generateRefreshToken(user);
@@ -84,6 +99,20 @@ public class AuthService {
             }
         }
         throw new AuthException("Невалидный JWT токен");
+    }
+
+    public void logout(@NonNull String refreshToken) throws AuthException {
+        if (jwtProvider.validateRefreshToken(refreshToken)) {
+            final Claims claims = jwtProvider.getRefreshClaims(refreshToken);
+            final String login = claims.getSubject();
+            final User user = userRepository.findByUsername(login)
+                    .orElseThrow(() -> new AuthException("Пользователь не найден"));
+            revokeAllUserTokens(user);
+            log.info("Пользователь вышел из системы: {}", user.getUsername());
+        } else {
+            log.warn("Попытка выхода с невалидным токеном");
+            throw new AuthException("Невалидный JWT токен");
+        }
     }
 
     private void revokeAllUserTokens(User user) {

@@ -51,8 +51,10 @@ public class JWTAuthenticationFilter extends GenericFilterBean {
                 // Установка объекта аутентификации в SecurityContext
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             }
-        } catch (AuthException e) {
-            throw new RuntimeException(e);
+        } catch (Exception e) {
+            // Логируем ошибку и продолжаем без аутентификации
+            // Это позволяет публичным эндпоинтам работать даже при невалидных токенах
+            logger.error("Cannot set user authentication: {}", e.getMessage());
         }
         fc.doFilter(request, response);
     }

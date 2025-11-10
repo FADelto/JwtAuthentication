@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.security.auth.message.AuthException;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,7 +35,7 @@ public class AuthController {
             @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponseDTO.class))
     })
     @PostMapping("login")
-    public ResponseEntity<?> login(@RequestBody JWTRequestDTO authRequest) {
+    public ResponseEntity<?> login(@Valid @RequestBody JWTRequestDTO authRequest) {
         try{
             return ResponseEntity.ok(authService.login(authRequest));
         } catch (AuthException e){
@@ -52,7 +53,7 @@ public class AuthController {
             @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponseDTO.class))
     })
     @PostMapping("/register")
-    public ResponseEntity<?> register(UserCreateDTO request) {
+    public ResponseEntity<?> register(@Valid @RequestBody UserCreateDTO request) {
         try{
             return ResponseEntity.ok(authService.register(request));
         } catch (AuthException e){
@@ -91,6 +92,23 @@ public class AuthController {
     public ResponseEntity<?> getNewRefreshToken(@RequestBody RefreshJWTRequestDTO request) {
         try{
             return ResponseEntity.ok(authService.refresh(request.getRefreshToken()));
+        } catch (AuthException e){
+            return ResponseEntity.status(401).body(new ErrorResponseDTO(e.getMessage()));
+        }
+    }
+
+    @Operation(
+            summary = "Выход из системы (отзыв токенов)"
+    )
+    @ApiResponse(responseCode = "200", description = "Успешный выход из системы")
+    @ApiResponse(responseCode = "401", description = "Невалидный JWT токен", content = {
+            @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponseDTO.class))
+    })
+    @PostMapping("logout")
+    public ResponseEntity<?> logout(@RequestBody RefreshJWTRequestDTO request) {
+        try{
+            authService.logout(request.getRefreshToken());
+            return ResponseEntity.ok().build();
         } catch (AuthException e){
             return ResponseEntity.status(401).body(new ErrorResponseDTO(e.getMessage()));
         }
