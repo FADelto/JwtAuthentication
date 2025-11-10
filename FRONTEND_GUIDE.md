@@ -1,5 +1,9 @@
 # Гайд по интеграции JWT авторизации для фронтендера
 
+> 📚 **Специализированные гайды:**
+> - **[Vue.js 3 + Pinia Guide](FRONTEND_VUE_GUIDE.md)** - Полное руководство для Vue.js с примерами кода
+> - Этот документ содержит общие примеры на Vanilla JS и React
+
 ## Оглавление
 1. [Обзор API](#обзор-api)
 2. [Процесс авторизации](#процесс-авторизации)
@@ -600,7 +604,7 @@ window.addEventListener('beforeunload', () => {
 ### 5. Rate Limiting
 
 Система имеет rate limiting:
-- **5 запросов в минуту** на `/api/auth/login` и `/api/auth/register` с одного IP
+- **15 запросов в минуту** на `/api/auth/login` и `/api/auth/register` с одного IP
 
 При превышении лимита вы получите `429 Too Many Requests`.
 
