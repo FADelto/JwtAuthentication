@@ -1,8 +1,7 @@
 package com.schedulebackendtgbot.service;
 
-import com.schedulebackendtgbot.database.entity.Token;
 import com.schedulebackendtgbot.database.entity.User;
-import com.schedulebackendtgbot.database.repository.TokenRepository;
+import com.schedulebackendtgbot.database.repository.TokenBlacklistRepository;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
@@ -18,7 +17,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
-import java.security.Key;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -28,64 +26,58 @@ import java.util.Date;
 @Component
 public class JWTProvider {
 
-    private final SecretKey jwtAccessSecret;
-    private final SecretKey jwtRefreshSecret;
-    private final TokenRepository tokenRepository;
+    private final SecretKey jwtSecret;
+    private final TokenBlacklistRepository tokenBlacklistRepository;
 
     public JWTProvider(
-            @Value("${jwt.secret.access}") String jwtAccessSecret,
-            @Value("${jwt.secret.refresh}") String jwtRefreshSecret,
-            TokenRepository tokenRepository) {
-        this.jwtAccessSecret = Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtAccessSecret));
-        this.jwtRefreshSecret = Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtRefreshSecret));
-        this.tokenRepository = tokenRepository;
+            @Value("${jwt.secret.access}") String jwtSecret,
+            TokenBlacklistRepository tokenBlacklistRepository) {
+        this.jwtSecret = Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtSecret));
+        this.tokenBlacklistRepository = tokenBlacklistRepository;
     }
 
-    public String generateAccessToken(@NonNull User user) {
+    /**
+     * Генерация JWT токена с увеличенным сроком жизни (30 дней)
+     */
+    public String generateToken(@NonNull User user) {
         final LocalDateTime now = LocalDateTime.now();
-        final Instant accessExpirationInstant = now.plusMinutes(30).atZone(ZoneId.systemDefault()).toInstant();
-        final Date accessExpiration = Date.from(accessExpirationInstant);
+        final Instant expirationInstant = now.plusDays(30).atZone(ZoneId.systemDefault()).toInstant();
+        final Date expiration = Date.from(expirationInstant);
+
         return Jwts.builder()
                 .subject(user.getUsername())
-                .expiration(accessExpiration)
-                .signWith(jwtAccessSecret)
+                .expiration(expiration)
+                .signWith(jwtSecret)
                 .claim("role", user.getRole())
                 .claim("firstName", user.getFirstname())
+                .claim("userId", user.getId())
                 .compact();
     }
 
-    public String generateRefreshToken(@NonNull User user) {
-        final LocalDateTime now = LocalDateTime.now();
-        final Instant refreshExpirationInstant = now.plusDays(30).atZone(ZoneId.systemDefault()).toInstant();
-        final Date refreshExpiration = Date.from(refreshExpirationInstant);
-        return Jwts.builder()
-                .subject(user.getUsername())
-                .expiration(refreshExpiration)
-                .signWith(jwtRefreshSecret)
-                .compact();
+    /**
+     * Валидация токена с проверкой blacklist
+     */
+    public boolean validateToken(@NonNull String token) throws AuthException {
+        // Сначала проверяем blacklist
+        if (tokenBlacklistRepository.existsByToken(token)) {
+            log.warn("Token is blacklisted");
+            throw new AuthException("Токен отозван");
+        }
+
+        return validateTokenSignature(token);
     }
 
-    public boolean validateAccessToken(@NonNull String accessToken) throws AuthException {
-        return validateToken(accessToken, jwtAccessSecret, false);
-    }
-
-    public boolean validateRefreshToken(@NonNull String refreshToken) throws AuthException {
-        return validateToken(refreshToken, jwtRefreshSecret, true);
-    }
-
-    private boolean validateToken(@NonNull String token, @NonNull Key secret, Boolean refreshToken) throws AuthException {
+    /**
+     * Валидация подписи токена
+     */
+    private boolean validateTokenSignature(@NonNull String token) throws AuthException {
         try {
             Jwts.parser()
-                    .verifyWith((SecretKey) secret)
+                    .verifyWith(jwtSecret)
                     .build()
                     .parseSignedClaims(token);
             return true;
         } catch (ExpiredJwtException expEx) {
-            if(refreshToken) {
-                Token expiredToken = tokenRepository.findByToken(token).orElseThrow();
-                expiredToken.setExpired(true);
-                tokenRepository.save(expiredToken);
-            }
             log.error("Token expired", expEx);
             throw new AuthException("Время работы токена истекло");
         } catch (UnsupportedJwtException unsEx) {
@@ -103,20 +95,23 @@ public class JWTProvider {
         }
     }
 
-    public Claims getAccessClaims(@NonNull String token) {
-        return getClaims(token, jwtAccessSecret);
-    }
-
-    public Claims getRefreshClaims(@NonNull String token) {
-        return getClaims(token, jwtRefreshSecret);
-    }
-
-    private Claims getClaims(@NonNull String token, @NonNull Key secret) {
+    /**
+     * Получение claims из токена
+     */
+    public Claims getClaims(@NonNull String token) {
         return Jwts.parser()
-                .verifyWith((SecretKey) secret)
+                .verifyWith(jwtSecret)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
     }
 
+    /**
+     * Получение даты истечения токена
+     */
+    public LocalDateTime getExpirationDate(@NonNull String token) {
+        Claims claims = getClaims(token);
+        Date expiration = claims.getExpiration();
+        return expiration.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
+    }
 }

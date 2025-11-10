@@ -8,7 +8,6 @@ import lombok.Getter;
 public class JWTResponseDTO {
 
     private final String type = "Bearer";
-    private String accessToken;
-    private String refreshToken;
+    private String token;
 
 }
