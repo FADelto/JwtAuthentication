@@ -35,8 +35,8 @@ public class JWTAuthenticationFilter extends GenericFilterBean {
             throws IOException, ServletException {
         final String token = getTokenFromRequest((HttpServletRequest) request);
         try {
-            if (token != null && jwtProvider.validateAccessToken(token)) {
-                final Claims claims = jwtProvider.getAccessClaims(token);
+            if (token != null && jwtProvider.validateToken(token)) {
+                final Claims claims = jwtProvider.getClaims(token);
                 final String username = claims.getSubject();
                 final String role = claims.get("role", String.class);
                 // Загрузка UserDetails по username

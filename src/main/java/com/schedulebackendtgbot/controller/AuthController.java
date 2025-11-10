@@ -62,52 +62,16 @@ public class AuthController {
     }
 
     @Operation(
-            summary = "Получить access токен"
-    )
-    @ApiResponse(responseCode = "200", description = "OK", content = {
-            @Content(mediaType = "application/json", schema = @Schema(implementation = JWTResponseDTO.class))
-    })
-    @ApiResponse(responseCode = "401", description = "Пользователь не найден / Невалидный JWT токен / Время работы токена истекло / Неподдерживаемый токен / Неправильный токен", content = {
-            @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponseDTO.class))
-    })
-    @PostMapping("token")
-    public ResponseEntity<?> getNewAccessToken(@RequestBody RefreshJWTRequestDTO request) {
-        try{
-            return ResponseEntity.ok(authService.getAccessToken(request.getRefreshToken()));
-        } catch (AuthException e){
-            return ResponseEntity.status(401).body(new ErrorResponseDTO(e.getMessage()));
-        }
-    }
-
-    @Operation(
-            summary = "Обновить refresh токен"
-    )
-    @ApiResponse(responseCode = "200", description = "OK", content = {
-            @Content(mediaType = "application/json", schema = @Schema(implementation = JWTResponseDTO.class))
-    })
-    @ApiResponse(responseCode = "401", description = "Пользователь не найден / Невалидный JWT токен / Время работы токена истекло / Неподдерживаемый токен / Неправильный токен", content = {
-            @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponseDTO.class))
-    })
-    @PostMapping("refresh")
-    public ResponseEntity<?> getNewRefreshToken(@RequestBody RefreshJWTRequestDTO request) {
-        try{
-            return ResponseEntity.ok(authService.refresh(request.getRefreshToken()));
-        } catch (AuthException e){
-            return ResponseEntity.status(401).body(new ErrorResponseDTO(e.getMessage()));
-        }
-    }
-
-    @Operation(
-            summary = "Выход из системы (отзыв токенов)"
+            summary = "Выход из системы (добавление токена в blacklist)"
     )
     @ApiResponse(responseCode = "200", description = "Успешный выход из системы")
     @ApiResponse(responseCode = "401", description = "Невалидный JWT токен", content = {
             @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponseDTO.class))
     })
     @PostMapping("logout")
-    public ResponseEntity<?> logout(@RequestBody RefreshJWTRequestDTO request) {
+    public ResponseEntity<?> logout(@RequestBody LogoutRequestDTO request) {
         try{
-            authService.logout(request.getRefreshToken());
+            authService.logout(request.getToken());
             return ResponseEntity.ok().build();
         } catch (AuthException e){
             return ResponseEntity.status(401).body(new ErrorResponseDTO(e.getMessage()));

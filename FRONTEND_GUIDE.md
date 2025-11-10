@@ -22,9 +22,10 @@ Base URL: `http://your-api-url/api/auth`
 
 ### Токены
 
-Система использует два типа токенов:
-- **Access Token**: Короткоживущий токен (30 минут), используется для доступа к защищенным ресурсам
-- **Refresh Token**: Долгоживущий токен (30 дней), используется для обновления access token
+Система использует единый JWT токен:
+- **Token**: Долгоживущий токен (30 дней), используется для доступа к защищенным ресурсам
+- При выходе из системы токен добавляется в **blacklist** для предотвращения повторного использования
+- Для инвалидации токена необходимо выполнить logout
 
 ---
 
@@ -49,8 +50,8 @@ Base URL: `http://your-api-url/api/auth`
 **Response (200 OK):**
 ```json
 {
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "type": "Bearer",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
 
@@ -76,8 +77,8 @@ Base URL: `http://your-api-url/api/auth`
 **Response (200 OK):**
 ```json
 {
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "type": "Bearer",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
 
@@ -87,62 +88,20 @@ Base URL: `http://your-api-url/api/auth`
 
 ---
 
-### 3. Обновление Access Token
-
-**Endpoint:** `POST /api/auth/token`
-
-**Request Body:**
-```json
-{
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-**Response (200 OK):**
-```json
-{
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
----
-
-### 4. Обновление Refresh Token
-
-**Endpoint:** `POST /api/auth/refresh`
-
-**Request Body:**
-```json
-{
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-**Response (200 OK):**
-```json
-{
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-> ⚠️ **Важно:** При вызове `/refresh` оба токена обновляются. Старый refresh token становится невалидным.
-
----
-
-### 5. Выход из системы (Logout)
+### 3. Выход из системы (Logout)
 
 **Endpoint:** `POST /api/auth/logout`
 
 **Request Body:**
 ```json
 {
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
 
 **Response (200 OK):** Пустой ответ
+
+> ⚠️ **Важно:** После logout токен добавляется в blacklist и не может быть использован повторно.
 
 ---
 
@@ -152,8 +111,6 @@ Base URL: `http://your-api-url/api/auth`
 |-------|----------|----------|---------------------|
 | POST | `/api/auth/register` | Регистрация пользователя | Нет |
 | POST | `/api/auth/login` | Вход в систему | Нет |
-| POST | `/api/auth/token` | Получить новый access token | Нет |
-| POST | `/api/auth/refresh` | Обновить оба токена | Нет |
 | POST | `/api/auth/logout` | Выход из системы | Нет |
 | GET/POST | `/api/v1/user/**` | Пользовательские endpoint'ы | Да |
 | GET/POST | `/api/v1/admin/**` | Админские endpoint'ы | Да (роль ADMIN) |
@@ -181,13 +138,12 @@ async function register(userData) {
       throw new Error(error.error || 'Registration failed');
     }
 
-    const { accessToken, refreshToken } = await response.json();
+    const { token } = await response.json();
 
-    // Сохраняем токены
-    localStorage.setItem('accessToken', accessToken);
-    localStorage.setItem('refreshToken', refreshToken);
+    // Сохраняем токен
+    localStorage.setItem('token', token);
 
-    return { accessToken, refreshToken };
+    return { token };
   } catch (error) {
     console.error('Registration error:', error);
     throw error;
@@ -210,74 +166,41 @@ async function login(credentials) {
       throw new Error(error.error || 'Login failed');
     }
 
-    const { accessToken, refreshToken } = await response.json();
+    const { token } = await response.json();
 
-    // Сохраняем токены
-    localStorage.setItem('accessToken', accessToken);
-    localStorage.setItem('refreshToken', refreshToken);
+    // Сохраняем токен
+    localStorage.setItem('token', token);
 
-    return { accessToken, refreshToken };
+    return { token };
   } catch (error) {
     console.error('Login error:', error);
     throw error;
   }
 }
 
-// 3. Запрос к защищенному endpoint с автоматическим обновлением токена
+// 3. Запрос к защищенному endpoint
 async function fetchWithAuth(url, options = {}) {
-  let accessToken = localStorage.getItem('accessToken');
+  const token = localStorage.getItem('token');
 
-  const makeRequest = async (token) => {
-    return fetch(url, {
-      ...options,
-      headers: {
-        ...options.headers,
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-  };
+  if (!token) {
+    // Нет токена - перенаправляем на логин
+    window.location.href = '/login';
+    return;
+  }
 
-  let response = await makeRequest(accessToken);
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...options.headers,
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    }
+  });
 
-  // Если access token истек (401), пытаемся обновить его
+  // Если токен истек или невалиден (401), выполняем logout
   if (response.status === 401) {
-    const refreshToken = localStorage.getItem('refreshToken');
-
-    if (!refreshToken) {
-      // Нет refresh token - перенаправляем на логин
-      window.location.href = '/login';
-      return;
-    }
-
-    try {
-      // Обновляем access token
-      const refreshResponse = await fetch('http://localhost:8080/api/auth/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ refreshToken })
-      });
-
-      if (!refreshResponse.ok) {
-        throw new Error('Token refresh failed');
-      }
-
-      const { accessToken: newAccessToken, refreshToken: newRefreshToken } = await refreshResponse.json();
-
-      // Сохраняем новые токены
-      localStorage.setItem('accessToken', newAccessToken);
-      localStorage.setItem('refreshToken', newRefreshToken);
-
-      // Повторяем исходный запрос с новым токеном
-      response = await makeRequest(newAccessToken);
-    } catch (error) {
-      console.error('Token refresh failed:', error);
-      // Перенаправляем на логин
-      window.location.href = '/login';
-      return;
-    }
+    await logout();
+    return;
   }
 
   return response;
@@ -285,16 +208,16 @@ async function fetchWithAuth(url, options = {}) {
 
 // 4. Выход
 async function logout() {
-  const refreshToken = localStorage.getItem('refreshToken');
+  const token = localStorage.getItem('token');
 
-  if (refreshToken) {
+  if (token) {
     try {
       await fetch('http://localhost:8080/api/auth/logout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ refreshToken })
+        body: JSON.stringify({ token })
       });
     } catch (error) {
       console.error('Logout error:', error);
@@ -302,8 +225,7 @@ async function logout() {
   }
 
   // Очищаем локальное хранилище
-  localStorage.removeItem('accessToken');
-  localStorage.removeItem('refreshToken');
+  localStorage.removeItem('token');
 
   // Перенаправляем на логин
   window.location.href = '/login';
@@ -313,6 +235,10 @@ async function logout() {
 async function getUserData() {
   try {
     const response = await fetchWithAuth('http://localhost:8080/api/v1/user/profile');
+
+    if (!response) {
+      return; // Уже произошел logout
+    }
 
     if (!response.ok) {
       throw new Error('Failed to fetch user data');
@@ -346,52 +272,24 @@ const api = axios.create({
 // Добавляем interceptor для автоматической подстановки токена
 api.interceptors.request.use(
   (config) => {
-    const accessToken = localStorage.getItem('accessToken');
-    if (accessToken) {
-      config.headers.Authorization = `Bearer ${accessToken}`;
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// Добавляем interceptor для автоматического обновления токена
+// Добавляем interceptor для обработки ошибок авторизации
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config;
-
-    // Если получили 401 и еще не пытались обновить токен
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-
-      try {
-        const refreshToken = localStorage.getItem('refreshToken');
-
-        if (!refreshToken) {
-          throw new Error('No refresh token');
-        }
-
-        const response = await axios.post(`${API_URL}/auth/token`, {
-          refreshToken
-        });
-
-        const { accessToken, refreshToken: newRefreshToken } = response.data;
-
-        localStorage.setItem('accessToken', accessToken);
-        localStorage.setItem('refreshToken', newRefreshToken);
-
-        // Обновляем токен в исходном запросе
-        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-
-        return api(originalRequest);
-      } catch (refreshError) {
-        // Если не удалось обновить токен, выходим
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        window.location.href = '/login';
-        return Promise.reject(refreshError);
-      }
+    // Если получили 401, выполняем logout
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+      return Promise.reject(error);
     }
 
     return Promise.reject(error);
@@ -402,37 +300,34 @@ api.interceptors.response.use(
 export const authService = {
   async register(userData) {
     const response = await axios.post(`${API_URL}/auth/register`, userData);
-    const { accessToken, refreshToken } = response.data;
+    const { token } = response.data;
 
-    localStorage.setItem('accessToken', accessToken);
-    localStorage.setItem('refreshToken', refreshToken);
+    localStorage.setItem('token', token);
 
     return response.data;
   },
 
   async login(credentials) {
     const response = await axios.post(`${API_URL}/auth/login`, credentials);
-    const { accessToken, refreshToken } = response.data;
+    const { token } = response.data;
 
-    localStorage.setItem('accessToken', accessToken);
-    localStorage.setItem('refreshToken', refreshToken);
+    localStorage.setItem('token', token);
 
     return response.data;
   },
 
   async logout() {
-    const refreshToken = localStorage.getItem('refreshToken');
+    const token = localStorage.getItem('token');
 
-    if (refreshToken) {
-      await axios.post(`${API_URL}/auth/logout`, { refreshToken });
+    if (token) {
+      await axios.post(`${API_URL}/auth/logout`, { token });
     }
 
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('token');
   },
 
   isAuthenticated() {
-    return !!localStorage.getItem('accessToken');
+    return !!localStorage.getItem('token');
   }
 };
 
@@ -455,8 +350,8 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     // Проверяем, есть ли токен при загрузке
-    const accessToken = localStorage.getItem('accessToken');
-    if (accessToken) {
+    const token = localStorage.getItem('token');
+    if (token) {
       // Можно дополнительно загрузить данные пользователя
       setUser({ authenticated: true });
     }
@@ -541,14 +436,14 @@ export const useAuth = () => {
 ### 1. Хранение токенов
 
 #### ✅ Рекомендуется
-- Использовать `localStorage` для refresh token
-- Использовать память (переменные) для access token в production
-- В development можно использовать `localStorage` для обоих
+- Использовать `localStorage` для хранения токена
+- Для повышенной безопасности можно использовать память (переменные) вместо localStorage
+- При использовании памяти пользователь будет разлогинен при обновлении страницы
 
 #### ❌ Не рекомендуется
 - Хранить токены в cookies без `httpOnly` флага
-- Хранить токены в sessionStorage для long-lived sessions
 - Передавать токены в URL
+- Хранить токен в глобальных переменных без защиты
 
 ### 2. Безопасность
 
@@ -556,26 +451,25 @@ export const useAuth = () => {
 // ✅ Правильно: Токен в Authorization header
 fetch('/api/v1/user/profile', {
   headers: {
-    'Authorization': `Bearer ${accessToken}`
+    'Authorization': `Bearer ${token}`
   }
 });
 
 // ❌ Неправильно: Токен в URL
-fetch(`/api/v1/user/profile?token=${accessToken}`);
+fetch(`/api/v1/user/profile?token=${token}`);
 ```
 
 ### 3. Обработка истечения токена
 
 ```javascript
-// ✅ Правильно: Автоматическое обновление
+// ✅ Правильно: Logout при 401
 api.interceptors.response.use(
   response => response,
   async error => {
     if (error.response?.status === 401) {
-      // Попытка обновить токен
-      await refreshToken();
-      // Повторить запрос
-      return api(error.config);
+      // Токен истек или невалиден - выполняем logout
+      localStorage.removeItem('token');
+      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
@@ -590,12 +484,12 @@ api.interceptors.response.use(
 ```javascript
 // Отправляем logout при закрытии вкладки
 window.addEventListener('beforeunload', () => {
-  const refreshToken = localStorage.getItem('refreshToken');
-  if (refreshToken) {
+  const token = localStorage.getItem('token');
+  if (token) {
     // Используем navigator.sendBeacon для гарантированной отправки
     navigator.sendBeacon(
       'http://localhost:8080/api/auth/logout',
-      JSON.stringify({ refreshToken })
+      JSON.stringify({ token })
     );
   }
 });
@@ -647,17 +541,20 @@ http://localhost:8080/swagger-ui/index.html
 ### Проблема: "CORS error"
 **Решение:** Убедитесь, что ваш origin добавлен в `SpringSecurityConfig`. По умолчанию разрешены только `localhost:3000` и `localhost:5173`.
 
-### Проблема: "Token expired" при каждом запросе
-**Решение:** Проверьте, что вы правильно обновляете и сохраняете новые токены после рефреша.
+### Проблема: "Token expired" (401)
+**Решение:** Токен имеет срок действия 30 дней. После истечения необходимо выполнить повторный login. Убедитесь, что вы корректно обрабатываете 401 ошибки и перенаправляете пользователя на страницу входа.
 
 ### Проблема: "429 Too Many Requests"
 **Решение:** Подождите 1 минуту или добавьте debounce на кнопки логина/регистрации.
 
 ### Проблема: Токен не отправляется на сервер
 **Решение:**
-1. Проверьте, что токен есть в localStorage: `localStorage.getItem('accessToken')`
+1. Проверьте, что токен есть в localStorage: `localStorage.getItem('token')`
 2. Проверьте, что заголовок `Authorization` установлен правильно: `Bearer <token>`
 3. Проверьте в DevTools Network tab, что заголовок отправляется
+
+### Проблема: Токен работал, но перестал после logout
+**Решение:** После logout токен добавляется в blacklist и не может быть использован повторно. Необходимо выполнить новый login для получения нового токена.
 
 ---
 
@@ -670,5 +567,14 @@ http://localhost:8080/swagger-ui/index.html
 
 ---
 
-**Версия:** 1.0
-**Последнее обновление:** 2025-01-10
+**Версия:** 2.0
+**Последнее обновление:** 2025-11-10
+
+## Изменения в версии 2.0
+
+- Упрощена схема аутентификации: теперь используется единый JWT токен вместо пары access/refresh токенов
+- Токен имеет срок действия 30 дней
+- Удалены endpoints `/api/auth/token` и `/api/auth/refresh`
+- Добавлен механизм blacklist для инвалидации токенов при logout
+- Упрощена обработка ошибок: при 401 выполняется автоматический logout
+- Изменен формат ответа: `{ type: "Bearer", token: "..." }` вместо `{ accessToken, refreshToken }`

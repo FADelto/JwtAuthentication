@@ -24,10 +24,9 @@
 
 ### Особенности системы
 
-- **Access Token**: 30 минут (используется для API запросов)
-- **Refresh Token**: 30 дней (используется для обновления access token)
+- **JWT Token**: 30 дней (единый токен для всех API запросов)
+- **Token Blacklist**: Токены добавляются в черный список при logout
 - **Rate Limiting**: 15 запросов в минуту на `/api/auth/login` и `/api/auth/register`
-- **Автоматическое обновление токенов**: Через Axios interceptors
 - **CORS**: Настроен для `localhost:3000` и `localhost:5173`
 
 ---
@@ -118,10 +117,10 @@ const api = axios.create({
 // Request interceptor - добавляем токен к каждому запросу
 api.interceptors.request.use(
   (config) => {
-    const accessToken = localStorage.getItem('accessToken');
+    const token = localStorage.getItem('token');
 
-    if (accessToken) {
-      config.headers.Authorization = `Bearer ${accessToken}`;
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
 
     return config;
@@ -131,65 +130,25 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor - обработка ответов и автоматическое обновление токена
+// Response interceptor - обработка ответов и ошибок
 api.interceptors.response.use(
   (response) => {
     return response;
   },
   async (error) => {
-    const originalRequest = error.config;
-
-    // Если получили 401 и это не запрос на обновление токена
+    // Если получили 401 (Unauthorized), выходим из системы
     if (
       error.response?.status === 401 &&
-      !originalRequest._retry &&
-      !originalRequest.url.includes('/auth/token') &&
-      !originalRequest.url.includes('/auth/login')
+      !error.config.url.includes('/auth/login') &&
+      !error.config.url.includes('/auth/register')
     ) {
-      originalRequest._retry = true;
+      // Токен истек или невалиден, выходим
+      const authStore = useAuthStore();
+      authStore.logout();
 
-      try {
-        const refreshToken = localStorage.getItem('refreshToken');
-
-        if (!refreshToken) {
-          throw new Error('No refresh token available');
-        }
-
-        // Запрос на обновление токена
-        const response = await axios.post(
-          `${API_URL}/auth/token`,
-          { refreshToken },
-          {
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          }
-        );
-
-        const { accessToken, refreshToken: newRefreshToken } = response.data;
-
-        // Сохраняем новые токены
-        localStorage.setItem('accessToken', accessToken);
-        localStorage.setItem('refreshToken', newRefreshToken);
-
-        // Обновляем токен в store
-        const authStore = useAuthStore();
-        authStore.setTokens(accessToken, newRefreshToken);
-
-        // Обновляем заголовок и повторяем запрос
-        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-        return api(originalRequest);
-      } catch (refreshError) {
-        // Если не удалось обновить токен, выходим
-        const authStore = useAuthStore();
-        authStore.logout();
-
-        // Перенаправляем на страницу входа
-        if (window.location.pathname !== '/login') {
-          window.location.href = '/login';
-        }
-
-        return Promise.reject(refreshError);
+      // Перенаправляем на страницу входа
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
       }
     }
 
@@ -213,8 +172,6 @@ import api from './axios';
 const AUTH_ENDPOINTS = {
   LOGIN: '/auth/login',
   REGISTER: '/auth/register',
-  REFRESH: '/auth/refresh',
-  TOKEN: '/auth/token',
   LOGOUT: '/auth/logout',
 };
 
@@ -222,7 +179,7 @@ export const authApi = {
   /**
    * Вход пользователя
    * @param {Object} credentials - { login: string, password: string }
-   * @returns {Promise<{accessToken: string, refreshToken: string}>}
+   * @returns {Promise<{type: string, token: string}>}
    */
   async login(credentials) {
     const response = await api.post(AUTH_ENDPOINTS.LOGIN, credentials);
@@ -232,7 +189,7 @@ export const authApi = {
   /**
    * Регистрация нового пользователя
    * @param {Object} userData - { username: string, password: string, firstname?: string, ... }
-   * @returns {Promise<{accessToken: string, refreshToken: string}>}
+   * @returns {Promise<{type: string, token: string}>}
    */
   async register(userData) {
     const response = await api.post(AUTH_ENDPOINTS.REGISTER, userData);
@@ -240,32 +197,12 @@ export const authApi = {
   },
 
   /**
-   * Получение нового access token
-   * @param {string} refreshToken
-   * @returns {Promise<{accessToken: string, refreshToken: string}>}
-   */
-  async getAccessToken(refreshToken) {
-    const response = await api.post(AUTH_ENDPOINTS.TOKEN, { refreshToken });
-    return response.data;
-  },
-
-  /**
-   * Обновление обоих токенов
-   * @param {string} refreshToken
-   * @returns {Promise<{accessToken: string, refreshToken: string}>}
-   */
-  async refreshTokens(refreshToken) {
-    const response = await api.post(AUTH_ENDPOINTS.REFRESH, { refreshToken });
-    return response.data;
-  },
-
-  /**
    * Выход из системы
-   * @param {string} refreshToken
+   * @param {string} token - JWT токен для добавления в blacklist
    * @returns {Promise<void>}
    */
-  async logout(refreshToken) {
-    await api.post(AUTH_ENDPOINTS.LOGOUT, { refreshToken });
+  async logout(token) {
+    await api.post(AUTH_ENDPOINTS.LOGOUT, { token });
   },
 };
 
@@ -296,14 +233,13 @@ import router from '@/router';
 
 export const useAuthStore = defineStore('auth', () => {
   // State
-  const accessToken = ref(localStorage.getItem('accessToken') || null);
-  const refreshToken = ref(localStorage.getItem('refreshToken') || null);
+  const token = ref(localStorage.getItem('token') || null);
   const user = ref(null);
   const loading = ref(false);
   const error = ref(null);
 
   // Getters
-  const isAuthenticated = computed(() => !!accessToken.value);
+  const isAuthenticated = computed(() => !!token.value);
   const userRole = computed(() => user.value?.role || null);
   const isAdmin = computed(() => userRole.value === 'ADMIN');
 
@@ -320,7 +256,7 @@ export const useAuthStore = defineStore('auth', () => {
 
       const response = await authApi.login(credentials);
 
-      setTokens(response.accessToken, response.refreshToken);
+      setToken(response.token);
       await fetchUser();
 
       return { success: true };
@@ -344,7 +280,7 @@ export const useAuthStore = defineStore('auth', () => {
 
       const response = await authApi.register(userData);
 
-      setTokens(response.accessToken, response.refreshToken);
+      setToken(response.token);
       await fetchUser();
 
       return { success: true };
@@ -371,8 +307,8 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       loading.value = true;
 
-      if (refreshToken.value) {
-        await authApi.logout(refreshToken.value);
+      if (token.value) {
+        await authApi.logout(token.value);
       }
     } catch (err) {
       console.error('Logout error:', err);
@@ -389,7 +325,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function fetchUser() {
     try {
       // Декодируем JWT токен для получения данных пользователя
-      const payload = parseJwt(accessToken.value);
+      const payload = parseJwt(token.value);
 
       user.value = {
         username: payload.sub,
@@ -402,57 +338,33 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * Установка токенов
+   * Установка токена
    */
-  function setTokens(access, refresh) {
-    accessToken.value = access;
-    refreshToken.value = refresh;
-
-    localStorage.setItem('accessToken', access);
-    localStorage.setItem('refreshToken', refresh);
+  function setToken(newToken) {
+    token.value = newToken;
+    localStorage.setItem('token', newToken);
   }
 
   /**
    * Очистка данных авторизации
    */
   function clearAuth() {
-    accessToken.value = null;
-    refreshToken.value = null;
+    token.value = null;
     user.value = null;
 
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('token');
   }
 
   /**
    * Проверка авторизации при загрузке приложения
    */
   async function checkAuth() {
-    if (accessToken.value) {
+    if (token.value) {
       try {
         await fetchUser();
       } catch (err) {
         clearAuth();
       }
-    }
-  }
-
-  /**
-   * Обновление токенов
-   */
-  async function refreshAccessToken() {
-    try {
-      if (!refreshToken.value) {
-        throw new Error('No refresh token');
-      }
-
-      const response = await authApi.getAccessToken(refreshToken.value);
-      setTokens(response.accessToken, response.refreshToken);
-
-      return true;
-    } catch (err) {
-      clearAuth();
-      return false;
     }
   }
 
@@ -480,8 +392,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     // State
-    accessToken,
-    refreshToken,
+    token,
     user,
     loading,
     error,
@@ -496,10 +407,9 @@ export const useAuthStore = defineStore('auth', () => {
     register,
     logout,
     fetchUser,
-    setTokens,
+    setToken,
     clearAuth,
     checkAuth,
-    refreshAccessToken,
   };
 });
 ```
@@ -662,7 +572,7 @@ router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
 
   // Проверяем авторизацию при первой загрузке
-  if (authStore.accessToken && !authStore.user) {
+  if (authStore.token && !authStore.user) {
     await authStore.checkAuth();
   }
 
@@ -1209,9 +1119,7 @@ async function handleLogout() {
 |-------|----------|----------|---------------------|
 | POST | `/api/auth/register` | Регистрация | Нет |
 | POST | `/api/auth/login` | Вход | Нет |
-| POST | `/api/auth/token` | Получить новый access token | Нет |
-| POST | `/api/auth/refresh` | Обновить оба токена | Нет |
-| POST | `/api/auth/logout` | Выход | Нет |
+| POST | `/api/auth/logout` | Выход (добавляет токен в blacklist) | Нет |
 
 ### Request/Response примеры
 
@@ -1233,8 +1141,8 @@ POST /api/auth/register
 **Response (200 OK):**
 ```json
 {
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "type": "Bearer",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
 
@@ -1267,8 +1175,8 @@ POST /api/auth/login
 **Response (200 OK):**
 ```json
 {
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "type": "Bearer",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
 
@@ -1368,34 +1276,34 @@ async function someAction() {
 ### 1. Безопасность токенов
 
 ```javascript
-// ✅ Правильно: Токены в localStorage (для SPA)
-localStorage.setItem('accessToken', token);
+// ✅ Правильно: Токен в localStorage (для SPA)
+localStorage.setItem('token', token);
 
-// ✅ Правильно: Токены в памяти (для максимальной безопасности)
-// В production можно хранить access token только в памяти
+// ✅ Правильно: Токен в памяти (для максимальной безопасности)
+// В production можно хранить токен только в памяти
 const tokenStore = ref(null); // Вместо localStorage
 
-// ❌ Неправильно: Токены в cookie без httpOnly (уязвимость XSS)
+// ❌ Неправильно: Токен в cookie без httpOnly (уязвимость XSS)
 document.cookie = `token=${token}`;
 ```
 
-### 2. Автоматическое обновление токенов
+### 2. Обработка истечения токена
 
 ```javascript
-// ✅ Правильно: Используйте Axios interceptors
+// ✅ Правильно: Используйте Axios interceptors для автоматического logout
 api.interceptors.response.use(
   response => response,
   async error => {
-    if (error.response?.status === 401 && !error.config._retry) {
-      error.config._retry = true;
-      await refreshToken();
-      return api(error.config);
+    if (error.response?.status === 401) {
+      // Токен истек, выходим из системы
+      const authStore = useAuthStore();
+      authStore.logout();
     }
     return Promise.reject(error);
   }
 );
 
-// ❌ Неправильно: Ручное обновление в каждом компоненте
+// ❌ Неправильно: Игнорирование 401 ошибок
 ```
 
 ### 3. Rate Limiting
@@ -1529,11 +1437,11 @@ import { useAuthStore } from '@/stores/auth';
 window.addEventListener('beforeunload', () => {
   const authStore = useAuthStore();
 
-  if (authStore.refreshToken) {
+  if (authStore.token) {
     // Используем sendBeacon для гарантированной отправки
     navigator.sendBeacon(
       'http://localhost:8080/api/auth/logout',
-      JSON.stringify({ refreshToken: authStore.refreshToken })
+      JSON.stringify({ token: authStore.token })
     );
   }
 });
@@ -1556,19 +1464,26 @@ has been blocked by CORS policy
 2. По умолчанию разрешены: `localhost:3000` и `localhost:5173`
 3. Если используете другой порт, попросите бэкенд добавить его
 
-### Проблема 2: "Token expired" при каждом запросе
+### Проблема 2: "Token expired" - получаю 401 ошибку
 
-**Причина:** Токены не обновляются после рефреша
+**Причина:** Токен истек (срок действия 30 дней)
 
 **Решение:**
 ```javascript
-// Убедитесь, что в interceptor вы сохраняете новые токены
-const { accessToken, refreshToken: newRefreshToken } = response.data;
-localStorage.setItem('accessToken', accessToken);
-localStorage.setItem('refreshToken', newRefreshToken);
+// При получении 401 ошибки пользователь автоматически выходит из системы
+// Убедитесь, что interceptor настроен правильно:
+api.interceptors.response.use(
+  response => response,
+  async error => {
+    if (error.response?.status === 401) {
+      const authStore = useAuthStore();
+      authStore.logout();
+    }
+    return Promise.reject(error);
+  }
+);
 
-// И обновляете в store
-authStore.setTokens(accessToken, newRefreshToken);
+// Пользователю нужно будет войти заново
 ```
 
 ### Проблема 3: "429 Too Many Requests"
@@ -1594,11 +1509,11 @@ const debouncedLogin = useDebounceFn(login, 1000, { maxWait: 5000 });
 **Решение:**
 ```javascript
 // Убедитесь, что токен есть
-console.log('Token:', localStorage.getItem('accessToken'));
+console.log('Token:', localStorage.getItem('token'));
 
 // Убедитесь, что interceptor настроен правильно
 api.interceptors.request.use(config => {
-  const token = localStorage.getItem('accessToken');
+  const token = localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -1672,8 +1587,8 @@ describe('Auth Store', () => {
     const store = useAuthStore();
 
     const mockResponse = {
-      accessToken: 'mock-access-token',
-      refreshToken: 'mock-refresh-token',
+      type: 'Bearer',
+      token: 'mock-jwt-token',
     };
 
     authApi.login.mockResolvedValue(mockResponse);
@@ -1681,8 +1596,8 @@ describe('Auth Store', () => {
     await store.login({ login: 'test@test.com', password: 'password' });
 
     expect(store.isAuthenticated).toBe(true);
-    expect(store.accessToken).toBe('mock-access-token');
-    expect(localStorage.getItem('accessToken')).toBe('mock-access-token');
+    expect(store.token).toBe('mock-jwt-token');
+    expect(localStorage.getItem('token')).toBe('mock-jwt-token');
   });
 
   it('should handle login error', async () => {
@@ -1701,12 +1616,12 @@ describe('Auth Store', () => {
   it('should logout successfully', async () => {
     const store = useAuthStore();
 
-    store.setTokens('access', 'refresh');
+    store.setToken('mock-jwt-token');
     await store.logout();
 
     expect(store.isAuthenticated).toBe(false);
-    expect(store.accessToken).toBe(null);
-    expect(localStorage.getItem('accessToken')).toBe(null);
+    expect(store.token).toBe(null);
+    expect(localStorage.getItem('token')).toBe(null);
   });
 });
 ```
@@ -1715,9 +1630,9 @@ describe('Auth Store', () => {
 
 ## Дополнительные возможности
 
-### 1. Refresh Token Rotation
+### 1. Token Blacklist
 
-Уже реализовано! При вызове `/api/auth/refresh` оба токена обновляются.
+Уже реализовано! При вызове `/api/auth/logout` токен добавляется в черный список и становится недействительным.
 
 ### 2. Remember Me
 
@@ -1771,10 +1686,10 @@ http://localhost:8080/swagger-ui/index.html
 
 ---
 
-**Версия:** 2.0
-**Последнее обновление:** 2025-01-10
+**Версия:** 3.0
+**Последнее обновление:** 2025-11-10
 **Совместимость:**
 - Vue.js: ^3.4.0
 - Pinia: ^2.1.7
 - Axios: ^1.6.0
-- Backend API: v1.0
+- Backend API: v2.0 (Single Token)
